@@ -11,7 +11,6 @@ export default {
             subConverter = subConverter.split("//")[1] || subConverter;
         }
         let subConfig = env.SUBCONFIG || 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online_Mini_MultiMode.ini';
-        const proxyIP = env.PROXYIP || null;
         let ips = ['3Q.bestip-one.cf.090227.xyz#加入我的频道t.me/CMLiussss解锁更多优选节点'];
         if (env.ADD) ips = await 整理成数组(env.ADD);
         let FileName = env.SUBNAME || 'BPSUB';
@@ -78,7 +77,9 @@ export default {
             const uuid = url.searchParams.get('uuid') || env.UUID;
             const uuid_json = await getLocalData(bphost, uuid);
             const xhttp = url.searchParams.get('xhttp') || false;
-            let 最终路径 = url.searchParams.has('proxyip') ? `/proxyip=${url.searchParams.get('proxyip')}` : (proxyIP && proxyIP.trim() !== '') ? `/proxyip=${proxyIP}` : `/`;
+            const initialProxyIP = url.searchParams.has('proxyip') ? url.searchParams.get('proxyip') : env.PROXYIP || null;
+            const proxyIP = (initialProxyIP && initialProxyIP.includes('.william')) ? (await 解析William域名(initialProxyIP)) || initialProxyIP : initialProxyIP;
+            let 最终路径 = (proxyIP && proxyIP.trim?.() !== '') ? `/proxyip=${proxyIP}` : `/`;
             let socks5 = null;
             const 全局socks5 = (url.searchParams.has('global')) ? true : false;
             if (url.searchParams.has('socks5') && url.searchParams.get('socks5') != '') {
@@ -4174,4 +4175,47 @@ function encodeBase64(data) {
 
     const padding = 3 - (binary.length % 3 || 3);
     return base64.slice(0, base64.length - padding) + '=='.slice(0, padding);
+}
+
+async function 解析William域名(william) {
+    try {
+        const response = await fetch(`https://1.1.1.1/dns-query?name=${william}&type=TXT`, { headers: { 'Accept': 'application/dns-json' } });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const txtRecords = (data.Answer || []).filter(record => record.type === 16).map(record => record.data);
+        if (txtRecords.length === 0) return null;
+        let txtData = txtRecords[0];
+        if (txtData.startsWith('"') && txtData.endsWith('"')) txtData = txtData.slice(1, -1);
+        const prefixes = txtData.replace(/\\010/g, ',').replace(/\n/g, ',').split(',').map(s => s.trim()).filter(Boolean);
+        if (prefixes.length === 0) return null;
+        const selectedIP = prefixes[Math.floor(Math.random() * prefixes.length)];
+        let 地址 = selectedIP, 端口 = 443;
+        if (selectedIP.includes('.tp')) {
+            const tpMatch = selectedIP.match(/\.tp(\d+)/);
+            if (tpMatch) 端口 = parseInt(tpMatch[1], 10);
+            return [地址, 端口];
+        }
+        if (selectedIP.includes(']:')) {
+            const parts = selectedIP.split(']:');
+            地址 = parts[0] + ']';
+            端口 = parseInt(parts[1], 10) || 端口;
+        } else if (selectedIP.includes(':') && !selectedIP.startsWith('[')) {
+            const colonIndex = selectedIP.lastIndexOf(':');
+            地址 = selectedIP.slice(0, colonIndex);
+            端口 = parseInt(selectedIP.slice(colonIndex + 1), 10) || 端口;
+        }
+        if (地址.includes(':')) {
+            return `${地址.replace(/^\[|]$/g, '').replace(/:/g, '-')}.tp${端口}.ip.090227.xyz`;
+        } else {
+            const parts = 地址.split('.').map(part => {
+                const hex = parseInt(part, 10).toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            });
+            const nip = parts.join('');
+            return `${nip}.tp${端口}.ip.090227.xyz`;
+        }
+    } catch (error) {
+        console.error('解析ProxyIP失败:', error);
+        return null;
+    }
 }

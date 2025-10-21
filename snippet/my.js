@@ -290,7 +290,7 @@ async function handleWebSocket(request) {
                     } else if (启用SOCKS5反代 == 'http') {
                         sock = await httpConnect(addr, port);
                     } else {
-                        const [反代IP地址, 反代IP端口] = await 解析地址端口(proxyIP);
+                        const [反代IP地址, 反代IP端口] = await 解析地址端口(反代IP);
                         sock = connect({ hostname: 反代IP地址, port: 反代IP端口 });
                     }
                 }
@@ -498,26 +498,6 @@ async function 获取SOCKS5账号(address) {
 }
 async function 解析地址端口(proxyIP) {
     proxyIP = proxyIP.toLowerCase();
-    if (proxyIP.includes('.william')) {
-        const williamResult = await (async function 解析William域名(william) {
-            try {
-                const response = await fetch(`https://1.1.1.1/dns-query?name=${william}&type=TXT`, { headers: { 'Accept': 'application/dns-json' } });
-                if (!response.ok) return null;
-                const data = await response.json();
-                const txtRecords = (data.Answer || []).filter(record => record.type === 16).map(record => record.data);
-                if (txtRecords.length === 0) return null;
-                let txtData = txtRecords[0];
-                if (txtData.startsWith('"') && txtData.endsWith('"')) txtData = txtData.slice(1, -1);
-                const prefixes = txtData.replace(/\\010/g, ',').replace(/\n/g, ',').split(',').map(s => s.trim()).filter(Boolean);
-                if (prefixes.length === 0) return null;
-                return prefixes[Math.floor(Math.random() * prefixes.length)];
-            } catch (error) {
-                console.error('解析ProxyIP失败:', error);
-                return null;
-            }
-        })(proxyIP);
-        proxyIP = williamResult || proxyIP;
-    }
     let 地址 = proxyIP, 端口 = 443;
     if (proxyIP.includes('.tp')) {
         const tpMatch = proxyIP.match(/\.tp(\d+)/);
