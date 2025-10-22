@@ -2073,7 +2073,7 @@ async function subHtml(request, hostLength = 0, FileName, subProtocol, subConver
                                 <div style="margin-bottom: 20px;">
                                     <label for="snippetSourceSelect" style="display: block; margin-bottom: 12px; color: #e2e8f0; font-weight: 600;">选择源码版本：</label>
                                     <select id="snippetSourceSelect" onchange="changeSnippetSource()">
-                                        <option value="v" selected>🎯 白嫖哥源码</option>
+                                        <option value="v" selected>🎯 白嫖哥源码(@GoodLiux优化版)</option>
                                         <option value="t12">📘 天书12源码</option>
                                         <option value="t13">📗 天书13源码(不支持ed配置)</option>
                                         <option value="my">🔥 ymyuuu源码(支持xhttp协议)</option>

@@ -1,4 +1,8 @@
 const FIXED_UUID = '';// 建议修改为自己的规范化UUID，如不需要可留空
+let 反代IP = '';
+let 启用SOCKS5反代 = null;
+let 启用SOCKS5全局反代 = false;
+let 我的SOCKS5账号 = '';
 export default {
     async fetch(request) {
         try {
@@ -8,63 +12,64 @@ export default {
             if (upgradeHeader !== 'websocket') {
                 return new Response('Hello World!', { status: 200 });
             } else {
-                let socks5Address = url.searchParams.get('socks5') || url.searchParams.get('http') || null;
                 let parsedSocks5Address = {};
-                let enableSocks = null;
-                let enableGlobalSocks = url.searchParams.has('globalproxy');
-                let ProxyIP = request.cf.colo + '.proxyIP.cmliuSSSS.NET';
-                let ProxyPort = 443;
-                if ((url.pathname.toLowerCase().includes('/socks5=') || (url.pathname.includes('/s5=')) || (url.pathname.includes('/gs5=')))) {
-                    socks5Address = url.pathname.split('5=')[1];
-                    enableGlobalSocks = url.pathname.includes('/gs5=') ? true : enableGlobalSocks;
-                } if ((url.pathname.toLowerCase().includes('/http='))) {
-                    socks5Address = url.pathname.split('/http=')[1];
+                反代IP = 反代IP ? 反代IP : request.cf.colo + '.proxyIP.cmliuSSSS.NET';
+                我的SOCKS5账号 = url.searchParams.get('socks5') || url.searchParams.get('http');
+                启用SOCKS5全局反代 = url.searchParams.has('globalproxy') || 启用SOCKS5全局反代;
+                if (url.pathname.toLowerCase().includes('/socks5=') || (url.pathname.includes('/s5=')) || (url.pathname.includes('/gs5='))) {
+                    我的SOCKS5账号 = url.pathname.split('5=')[1];
+                    启用SOCKS5反代 = 'socks5';
+                    启用SOCKS5全局反代 = url.pathname.includes('/gs5=') ? true : 启用SOCKS5全局反代;
+                } else if (url.pathname.toLowerCase().includes('/http=')) {
+                    我的SOCKS5账号 = url.pathname.split('/http=')[1];
+                    启用SOCKS5反代 = 'http';
                 } else if (url.pathname.toLowerCase().includes('/socks://') || url.pathname.toLowerCase().includes('/socks5://') || url.pathname.toLowerCase().includes('/http://')) {
-                    socks5Address = url.pathname.split('://')[1].split('#')[0];
-                    if (socks5Address.includes('@')) {
-                        const lastAtIndex = socks5Address.lastIndexOf('@');
-                        let userPassword = socks5Address.substring(0, lastAtIndex).replaceAll('%3D', '=');
+                    启用SOCKS5反代 = (url.pathname.includes('/http://')) ? 'http' : 'socks5';
+                    我的SOCKS5账号 = url.pathname.split('://')[1].split('#')[0];
+                    if (我的SOCKS5账号.includes('@')) {
+                        const lastAtIndex = 我的SOCKS5账号.lastIndexOf('@');
+                        let userPassword = 我的SOCKS5账号.substring(0, lastAtIndex).replaceAll('%3D', '=');
                         const base64Regex = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
                         if (base64Regex.test(userPassword) && !userPassword.includes(':')) userPassword = atob(userPassword);
-                        socks5Address = `${userPassword}@${socks5Address.substring(lastAtIndex + 1)}`;
+                        我的SOCKS5账号 = `${userPassword}@${我的SOCKS5账号.substring(lastAtIndex + 1)}`;
                     }
-                    enableGlobalSocks = true;//开启全局SOCKS5
+                    启用SOCKS5全局反代 = true;//开启全局SOCKS5
                 }
 
-                if (socks5Address) {
+                if (我的SOCKS5账号) {
                     try {
-                        parsedSocks5Address = socks5AddressParser(socks5Address);
-                        enableSocks = url.pathname.includes('http://') ? 'http' : 'socks5';
+                        parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
+                        启用SOCKS5反代 = url.searchParams.get('http') ? 'http' : 启用SOCKS5反代;
                     } catch (err) {
-                        enableSocks = null;
+                        启用SOCKS5反代 = null;
                     }
                 } else {
-                    enableSocks = null;
+                    启用SOCKS5反代 = null;
                 }
 
-                if (url.searchParams.has('proxyip') || url.searchParams.has('ip')) {
-                    ProxyIP = url.searchParams.get('proxyip') || url.searchParams.get('ip');
-                    enableSocks = null;
+                if (url.searchParams.has('proxyip')) {
+                    反代IP = url.searchParams.get('proxyip');
+                    启用SOCKS5反代 = null;
                 } else if (url.pathname.toLowerCase().includes('/proxyip=')) {
-                    ProxyIP = url.pathname.toLowerCase().split('/proxyip=')[1];
-                    enableSocks = null;
+                    反代IP = url.pathname.toLowerCase().split('/proxyip=')[1];
+                    启用SOCKS5反代 = null;
                 } else if (url.pathname.toLowerCase().includes('/proxyip.')) {
-                    ProxyIP = `proxyip.${url.pathname.toLowerCase().split("/proxyip.")[1]}`;
-                    enableSocks = null;
+                    反代IP = `proxyip.${url.pathname.toLowerCase().split("/proxyip.")[1]}`;
+                    启用SOCKS5反代 = null;
                 } else if (url.pathname.toLowerCase().includes('/pyip=')) {
-                    ProxyIP = url.pathname.toLowerCase().split('/pyip=')[1];
-                    enableSocks = null;
+                    反代IP = url.pathname.toLowerCase().split('/pyip=')[1];
+                    启用SOCKS5反代 = null;
                 } else if (url.pathname.toLowerCase().includes('/ip=')) {
-                    ProxyIP = url.pathname.toLowerCase().split('/ip=')[1];
-                    enableSocks = null;
+                    反代IP = url.pathname.toLowerCase().split('/ip=')[1];
+                    启用SOCKS5反代 = null;
                 }
 
                 return await handleSPESSWebSocket(request, {
                     parsedSocks5Address,
-                    enableSocks,
-                    enableGlobalSocks,
-                    ProxyIP,
-                    ProxyPort
+                    启用SOCKS5反代,
+                    启用SOCKS5全局反代,
+                    反代IP,
+                    ProxyPort: 443,
                 });
             }
         } catch (err) {
@@ -76,9 +81,9 @@ export default {
 async function handleSPESSWebSocket(request, config) {
     const {
         parsedSocks5Address,
-        enableSocks,
-        enableGlobalSocks,
-        ProxyIP,
+        启用SOCKS5反代,
+        启用SOCKS5全局反代,
+        反代IP,
         ProxyPort
     } = config;
     const ws配对 = new WebSocketPair();
@@ -86,11 +91,11 @@ async function handleSPESSWebSocket(request, config) {
 
     serverWS.accept();
 
-    // WebSocket心跳机制，每30秒发送一次ping
+    // WebSocket心跳机制，每30秒发送一次
     let heartbeatInterval = setInterval(() => {
         if (serverWS.readyState === WS_READY_STATE_OPEN) {
             try {
-                serverWS.send('ping');
+                serverWS.send(new Uint8Array(0));
             } catch (e) { }
         }
     }, 30000);
@@ -151,7 +156,7 @@ async function handleSPESSWebSocket(request, config) {
                 return tcpSocket;
             }
             async function connectAndWriteSocks(address, port) {
-                const tcpSocket = enableSocks === 'socks5'
+                const tcpSocket = 启用SOCKS5反代 === 'socks5'
                     ? await socks5Connect(result.addressType, address, port, parsedSocks5Address)
                     : await httpConnect(result.addressType, address, port, parsedSocks5Address);
                 remoteSocket = tcpSocket;
@@ -163,13 +168,13 @@ async function handleSPESSWebSocket(request, config) {
             async function retry() {
                 try {
                     let tcpSocket;
-                    if (enableSocks === 'socks5') {
+                    if (启用SOCKS5反代 === 'socks5') {
                         tcpSocket = await socks5Connect(result.addressType, result.addressRemote, result.portRemote, parsedSocks5Address);
-                    } else if (enableSocks === 'http') {
+                    } else if (启用SOCKS5反代 === 'http') {
                         tcpSocket = await httpConnect(result.addressType, result.addressRemote, result.portRemote, parsedSocks5Address);
                     } else {
-                        const proxyConfig = await getProxyConfiguration(request.cf && request.cf.colo, result.addressRemote, result.portRemote, ProxyIP, ProxyPort);
-                        tcpSocket = await connect({ hostname: proxyConfig.ip, port: proxyConfig.port }, { allowHalfOpen: true });
+                        const [反代IP地址, 反代IP端口] = await 解析地址端口(反代IP);
+                        tcpSocket = await connect({ hostname: 反代IP地址, port: 反代IP端口 }, { allowHalfOpen: true });
                     }
                     remoteSocket = tcpSocket;
                     const writer = tcpSocket.writable.getWriter();
@@ -187,7 +192,7 @@ async function handleSPESSWebSocket(request, config) {
                 }
             }
             try {
-                if (enableGlobalSocks) {
+                if (启用SOCKS5全局反代) {
                     const tcpSocket = await connectAndWriteSocks(result.addressRemote, result.portRemote);
                     pipeRemoteToWebSocket(tcpSocket, serverWS, vlessRespHeader, retry);
                 } else {
@@ -299,43 +304,113 @@ function parseVLESSHeader(buffer) {
     };
 }
 
-function pipeRemoteToWebSocket(remoteSocket, ws, vlessHeader, retry = null) {
+async function pipeRemoteToWebSocket(remoteSocket, ws, vlessHeader, retry = null, retryCount = 0) {
+    const MAX_RETRIES = 8;                      // 最大重试8次
+    const MAX_CHUNK_SIZE = 4096 * 1024;              // 单帧最大 4096 KB
+    const MAX_BUFFER_SIZE = 2048 * 1024;           // 最大缓存 2 MB
+    const FLUSH_INTERVAL = 10;                  // ms，定期 flush
+    const BASE_RETRY_DELAY = 200;             // ms，初始重试延迟
+
     let headerSent = false;
     let hasIncomingData = false;
+    let bufferQueue = [];
+    let bufferedBytes = 0;
 
-    remoteSocket.readable.pipeTo(new WritableStream({
-        write(chunk) {
-            hasIncomingData = true;
-            if (ws.readyState === WS_READY_STATE_OPEN) {
-                if (!headerSent) {
-                    const combined = new Uint8Array(vlessHeader.byteLength + chunk.byteLength);
-                    combined.set(new Uint8Array(vlessHeader), 0);
-                    combined.set(new Uint8Array(chunk), vlessHeader.byteLength);
-                    ws.send(combined.buffer);
-                    headerSent = true;
-                } else {
-                    ws.send(chunk);
-                }
-            }
-        },
-        close() {
-            if (!hasIncomingData && retry) {
-                retry();
-                return;
-            }
-            if (ws.readyState === WS_READY_STATE_OPEN) {
-                ws.close(1000, '正常关闭');
-            }
-        },
-        abort() {
-            closeSocket(remoteSocket);
+    // --- 工具函数 ---
+
+    const concatUint8Arrays = (chunks) => {
+        if (chunks.length === 1) return chunks[0];
+        const total = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+        const merged = new Uint8Array(total);
+        let offset = 0;
+        for (const c of chunks) {
+            merged.set(c, offset);
+            offset += c.byteLength;
         }
-    })).catch(err => {
+        return merged;
+    };
+
+    // 分包发送（每帧 ≤ 4096 KB）
+    const sendInChunks = (data) => {
+        let offset = 0;
+        while (offset < data.byteLength) {
+            const end = Math.min(offset + MAX_CHUNK_SIZE, data.byteLength);
+            ws.send(data.slice(offset, end));
+            offset = end;
+        }
+    };
+
+    const flushBufferQueue = () => {
+        if (ws.readyState !== WS_READY_STATE_OPEN || bufferQueue.length === 0) return;
+        const merged = concatUint8Arrays(bufferQueue);
+        bufferQueue = [];
+        bufferedBytes = 0;
+        sendInChunks(merged);
+    };
+
+    const flushTimer = setInterval(flushBufferQueue, FLUSH_INTERVAL);
+
+    // --- 主读循环 ---
+    const reader = remoteSocket.readable.getReader();
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            hasIncomingData = true;
+            if (ws.readyState !== WS_READY_STATE_OPEN) break;
+
+            // 首包带 vlessHeader
+            if (!headerSent) {
+                const combined = new Uint8Array(vlessHeader.byteLength + value.byteLength);
+                combined.set(new Uint8Array(vlessHeader), 0);
+                combined.set(value, vlessHeader.byteLength);
+                bufferQueue.push(combined);
+                bufferedBytes += combined.byteLength;
+                headerSent = true;
+            } else {
+                bufferQueue.push(value);
+                bufferedBytes += value.byteLength;
+            }
+
+            // 缓存超过 2 MB 立即 flush
+            if (bufferedBytes >= MAX_BUFFER_SIZE) {
+                flushBufferQueue();
+            }
+        }
+
+        reader.releaseLock();
+        flushBufferQueue();
+        clearInterval(flushTimer);
+
+        // --- 关闭逻辑 ---
+        if (!hasIncomingData && retry && retryCount < MAX_RETRIES) {
+            const delay = BASE_RETRY_DELAY * Math.pow(2, retryCount);
+            console.warn(`未收到数据，${delay} ms 后重试 (${retryCount + 1}/${MAX_RETRIES})`);
+            await new Promise(r => setTimeout(r, delay));
+            await retry();
+            return;
+        }
+
+        if (ws.readyState === WS_READY_STATE_OPEN) ws.close(1000, '正常关闭');
+    } catch (err) {
+        reader.releaseLock();
+        clearInterval(flushTimer);
+        console.error('数据传输错误:', err);
         closeSocket(remoteSocket);
+
+        if (retry && retryCount < MAX_RETRIES) {
+            const delay = BASE_RETRY_DELAY * Math.pow(2, retryCount);
+            console.warn(`错误重试 (${retryCount + 1}/${MAX_RETRIES})，将在 ${delay} ms 后重试`);
+            await new Promise(r => setTimeout(r, delay));
+            await retry();
+            return;
+        }
+
         if (ws.readyState === WS_READY_STATE_OPEN) {
             ws.close(1011, '数据传输错误');
         }
-    });
+    }
 }
 
 function closeSocket(socket) {
@@ -352,13 +427,10 @@ function formatUUID(bytes) {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function socks5AddressParser(address) {
-    // 使用 "@" 分割地址，分为认证部分和服务器地址部分
+async function 获取SOCKS5账号(address) {
     const lastAtIndex = address.lastIndexOf("@");
     let [latter, former] = lastAtIndex === -1 ? [address, undefined] : [address.substring(lastAtIndex + 1), address.substring(0, lastAtIndex)];
     let username, password, hostname, port;
-
-    // 如果存在 former 部分，说明提供了认证信息
     if (former) {
         const formers = former.split(":");
         if (formers.length !== 2) {
@@ -366,16 +438,11 @@ function socks5AddressParser(address) {
         }
         [username, password] = formers;
     }
-
-    // 解析服务器地址部分
     const latters = latter.split(":");
-    // 检查是否是IPv6地址带端口格式 [xxx]:port
     if (latters.length > 2 && latter.includes("]:")) {
-        // IPv6地址带端口格式：[2001:db8::1]:8080
         port = Number(latter.split("]:")[1].replace(/[^\d]/g, ''));
-        hostname = latter.split("]:")[0] + "]"; // 正确提取hostname部分
+        hostname = latter.split("]:")[0] + "]";
     } else if (latters.length === 2) {
-        // IPv4地址带端口或域名带端口
         port = Number(latters.pop().replace(/[^\d]/g, ''));
         hostname = latters.join(":");
     } else {
@@ -386,27 +453,15 @@ function socks5AddressParser(address) {
     if (isNaN(port)) {
         throw new Error('无效的 SOCKS 地址格式：端口号必须是数字');
     }
-
-    // 处理 IPv6 地址的特殊情况
-    // IPv6 地址包含多个冒号，所以必须用方括号括起来，如 [2001:db8::1]
     const regex = /^\[.*\]$/;
     if (hostname.includes(":") && !regex.test(hostname)) {
         throw new Error('无效的 SOCKS 地址格式：IPv6 地址必须用方括号括起来，如 [2001:db8::1]');
     }
-
-    //if (/^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?).){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(hostname)) hostname = `${atob('d3d3Lg==')}${hostname}${atob('LmlwLjA5MDIyNy54eXo=')}`;
-    // 返回解析后的结果
-    return {
-        username,  // 用户名，如果没有则为 undefined
-        password,  // 密码，如果没有则为 undefined
-        hostname,  // 主机名，可以是域名、IPv4 或 IPv6 地址
-        port,	 // 端口号，已转换为数字类型
-    }
+    return { username, password, hostname, port };
 }
 
-// 修正socks5Connect函数，不再引用parsedSocks5Address
-async function socks5Connect(addressType, addressRemote, portRemote, socks5Address) {
-    const { username, password, hostname, port } = socks5Address;
+async function socks5Connect(addressType, addressRemote, portRemote, parsedSocks5Address) {
+    const { username, password, hostname, port } = parsedSocks5Address;
     const socket = connect({
         hostname,
         port,
@@ -472,8 +527,8 @@ async function socks5Connect(addressType, addressRemote, portRemote, socks5Addre
     return socket;
 }
 
-async function httpConnect(addressType, addressRemote, portRemote, socks5Address) {
-    const { username, password, hostname, port } = socks5Address;
+async function httpConnect(addressType, addressRemote, portRemote, parsedSocks5Address) {
+    const { username, password, hostname, port } = parsedSocks5Address;
     const sock = await connect({
         hostname: hostname,
         port: port
@@ -635,10 +690,6 @@ async function handleUDPOutBound(webSocket, 协议响应头) {
 // ========== 必要常量和依赖 ==========
 const WS_READY_STATE_OPEN = 1;
 import { connect } from 'cloudflare:sockets';
-async function getProxyConfiguration(colo, addressRemote, portRemote, ProxyIP, ProxyPort) {
-    [ProxyIP, ProxyPort] = await 解析地址端口(ProxyIP);
-    return { ip: ProxyIP || addressRemote, port: ProxyPort || portRemote };
-}
 
 async function 解析地址端口(proxyIP) {
     proxyIP = proxyIP.toLowerCase();
