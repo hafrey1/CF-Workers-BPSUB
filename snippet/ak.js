@@ -1,9 +1,6 @@
-const FIXED_UUID = '';// stallTCP v1.3 from https://t.me/Enkelte_notif/784
+const FIXED_UUID = '';// stallTCP v1.32 from https://t.me/Enkelte_notif/784
 import { connect } from 'cloudflare:sockets';
-let 反代IP = '';
-let 启用SOCKS5反代 = null;
-let 启用SOCKS5全局反代 = false;
-let 我的SOCKS5账号 = '';
+let 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {};
 //////////////////////////////////////////////////////////////////////////stall参数////////////////////////////////////////////////////////////////////////
 const MAX_PENDING = 2097152, KEEPALIVE = 15000, STALL_TO = 8000, MAX_STALL = 12, MAX_RECONN = 24;
 //////////////////////////////////////////////////////////////////////////主要架构////////////////////////////////////////////////////////////////////////
@@ -30,58 +27,9 @@ class Pool {
 }
 export default {
   async fetch(request) {
-    const url = new URL(request.url);
     反代IP = 反代IP ? 反代IP : request.cf.colo + '.PrOxYip.CmLiuSsSs.nEt';
-    我的SOCKS5账号 = url.searchParams.get('socks5') || url.searchParams.get('http');
-    启用SOCKS5全局反代 = url.searchParams.has('globalproxy') || 启用SOCKS5全局反代;
-    if (url.pathname.toLowerCase().includes('/socks5=') || (url.pathname.includes('/s5=')) || (url.pathname.includes('/gs5='))) {
-      我的SOCKS5账号 = url.pathname.split('5=')[1];
-      启用SOCKS5反代 = 'socks5';
-      启用SOCKS5全局反代 = url.pathname.includes('/gs5=') ? true : 启用SOCKS5全局反代;
-    } else if (url.pathname.toLowerCase().includes('/http=')) {
-      我的SOCKS5账号 = url.pathname.split('/http=')[1];
-      启用SOCKS5反代 = 'http';
-    } else if (url.pathname.toLowerCase().includes('/socks://') || url.pathname.toLowerCase().includes('/socks5://') || url.pathname.toLowerCase().includes('/http://')) {
-      启用SOCKS5反代 = (url.pathname.includes('/http://')) ? 'http' : 'socks5';
-      我的SOCKS5账号 = url.pathname.split('://')[1].split('#')[0];
-      if (我的SOCKS5账号.includes('@')) {
-        const lastAtIndex = 我的SOCKS5账号.lastIndexOf('@');
-        let userPassword = 我的SOCKS5账号.substring(0, lastAtIndex).replaceAll('%3D', '=');
-        const base64Regex = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
-        if (base64Regex.test(userPassword) && !userPassword.includes(':')) userPassword = atob(userPassword);
-        我的SOCKS5账号 = `${userPassword}@${我的SOCKS5账号.substring(lastAtIndex + 1)}`;
-      }
-      启用SOCKS5全局反代 = true;//开启全局SOCKS5
-    }
-
-    if (我的SOCKS5账号) {
-      try {
-        获取SOCKS5账号(我的SOCKS5账号);
-        启用SOCKS5反代 = url.searchParams.get('http') ? 'http' : 启用SOCKS5反代;
-      } catch (err) {
-        启用SOCKS5反代 = null;
-      }
-    } else {
-      启用SOCKS5反代 = null;
-    }
-
-    if (url.searchParams.has('proxyip')) {
-      反代IP = url.searchParams.get('proxyip');
-      启用SOCKS5反代 = null;
-    } else if (url.pathname.toLowerCase().includes('/proxyip=')) {
-      反代IP = url.pathname.toLowerCase().split('/proxyip=')[1];
-      启用SOCKS5反代 = null;
-    } else if (url.pathname.toLowerCase().includes('/proxyip.')) {
-      反代IP = `proxyip.${url.pathname.toLowerCase().split("/proxyip.")[1]}`;
-      启用SOCKS5反代 = null;
-    } else if (url.pathname.toLowerCase().includes('/pyip=')) {
-      反代IP = url.pathname.toLowerCase().split('/pyip=')[1];
-      启用SOCKS5反代 = null;
-    } else if (url.pathname.toLowerCase().includes('/ip=')) {
-      反代IP = url.pathname.toLowerCase().split('/ip=')[1];
-      启用SOCKS5反代 = null;
-    }
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Hello World!', { status: 200 });
+    await 反代参数获取(request);
     const { 0: c, 1: s } = new WebSocketPair(); s.accept(); handle(s);
     return new Response(null, { status: 101, webSocket: c });
   }
@@ -90,15 +38,15 @@ const handle = ws => {
   const pool = new Pool(); let sock, w, r, info, first = true, rxBytes = 0, stalls = 0, reconns = 0;
   let lastAct = Date.now(), conn = false, reading = false; const tmrs = {}, pend = [];
   let pendBytes = 0, score = 1.0, lastChk = Date.now(), lastRx = 0, succ = 0, fail = 0;
-  let stats = { tot: 0, cnt: 0, big: 0, win: 0, ts: Date.now() }; let mode = 'direct', avgSz = 0, tputs = [];
+  let stats = { tot: 0, cnt: 0, big: 0, win: 0, ts: Date.now() }; let mode = 'adaptive', avgSz = 0, tputs = [];
   const updateMode = s => {
     stats.tot += s; stats.cnt++; if (s > 8192) stats.big++; avgSz = avgSz * 0.9 + s * 0.1; const now = Date.now();
     if (now - stats.ts > 1000) {
       const rate = stats.win; tputs.push(rate); if (tputs.length > 5) tputs.shift(); stats.win = s; stats.ts = now;
       const avg = tputs.reduce((a, b) => a + b, 0) / tputs.length;
       if (stats.cnt >= 20) {
-        if (avg > 20971520 && avgSz > 16384) { if (mode !== 'buffered') { mode = 'buffered'; pool.enableLarge(); } }
-        else if (avg < 10485760 || avgSz < 8192) { if (mode !== 'direct') mode = 'direct'; }
+        if (avg < 8388608 || avgSz < 4096) { if (mode !== 'buffered') { mode = 'buffered'; pool.enableLarge(); } }
+        else if (avg > 16777216 && avgSz > 12288) { if (mode !== 'direct') mode = 'direct'; }
         else { if (mode !== 'adaptive') mode = 'adaptive'; }
       }
     } else { stats.win += s; }
@@ -124,18 +72,19 @@ const handle = ws => {
             lastChk = now; lastRx = rxBytes;
           }
           if (mode === 'buffered') {
-            if (v.length < 32768) {
+            if (v.length < 16384) {
               batch.push(v); bSz += v.length;
-              if (bSz >= 131072) flush();
-              else if (!bTmr) bTmr = setTimeout(flush, avgSz > 16384 ? 5 : 20);
+              if (bSz >= 65536) flush();
+              else if (!bTmr) bTmr = setTimeout(flush, avgSz > 8192 ? 8 : 25);
             } else { flush(); if (ws.readyState === 1) ws.send(v); }
-          } else if (mode === 'adaptive') {
-            if (v.length < 4096) {
+          } else if (mode === 'direct') { flush(); if (ws.readyState === 1) ws.send(v); }
+          else if (mode === 'adaptive') {
+            if (v.length < 8192) {
               batch.push(v); bSz += v.length;
-              if (bSz >= 32768) flush();
-              else if (!bTmr) bTmr = setTimeout(flush, 15);
+              if (bSz >= 49152) flush();
+              else if (!bTmr) bTmr = setTimeout(flush, 12);
             } else { flush(); if (ws.readyState === 1) ws.send(v); }
-          } else { flush(); if (ws.readyState === 1) ws.send(v); }
+          }
         } if (done) { flush(); reading = false; reconn(); break; }
       }
     } catch (e) { flush(); if (bTmr) clearTimeout(bTmr); reading = false; fail++; reconn(); }
@@ -188,7 +137,7 @@ const handle = ws => {
     Object.values(tmrs).forEach(clearInterval); cleanSock();
     while (pend.length) pool.free(pend.shift());
     pendBytes = 0; stats = { tot: 0, cnt: 0, big: 0, win: 0, ts: Date.now() };
-    mode = 'direct'; avgSz = 0; tputs = []; pool.reset();
+    mode = 'adaptive'; avgSz = 0; tputs = []; pool.reset();
   };
   ws.addEventListener('message', async e => {
     try {
@@ -280,7 +229,7 @@ async function 解析地址端口(proxyIP) {
   return [地址, 端口];
 }
 async function httpConnect(addressRemote, portRemote) {
-  const { username, password, hostname, port } = await 获取SOCKS5账号(我的SOCKS5账号);
+  const { username, password, hostname, port } = parsedSocks5Address;
   const sock = await connect({ hostname, port });
   const authHeader = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
   const connectRequest = `CONNECT ${addressRemote}:${portRemote} HTTP/1.1\r\n` +
@@ -338,7 +287,6 @@ async function httpConnect(addressRemote, portRemote) {
 }
 
 async function socks5Connect(targetHost, targetPort) {
-  const parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
   const { username, password, hostname, port } = parsedSocks5Address;
   const sock = connect({
     hostname: hostname,
@@ -363,4 +311,62 @@ async function socks5Connect(targetHost, targetPort) {
   w.releaseLock();
   r.releaseLock();
   return sock;
+}
+
+async function 反代参数获取(request) {
+  const url = new URL(request.url);
+  const { pathname, searchParams } = url;
+  const pathLower = pathname.toLowerCase();
+
+  // 初始化
+  我的SOCKS5账号 = searchParams.get('socks5') || searchParams.get('http') || null;
+  启用SOCKS5全局反代 = searchParams.has('globalproxy') || false;
+
+  // 统一处理反代IP参数 (优先级最高,使用正则一次匹配)
+  const proxyMatch = pathLower.match(/\/(proxyip[.=]|pyip=|ip=)(.+)/);
+  if (searchParams.has('proxyip')) {
+    const 路参IP = searchParams.get('proxyip');
+    反代IP = 路参IP.includes(',') ? 路参IP.split(',')[Math.floor(Math.random() * 路参IP.split(',').length)] : 路参IP;
+    return;
+  } else if (proxyMatch) {
+    const 路参IP = proxyMatch[1] === 'proxyip.' ? `proxyip.${proxyMatch[2]}` : proxyMatch[2];
+    反代IP = 路参IP.includes(',') ? 路参IP.split(',')[Math.floor(Math.random() * 路参IP.split(',').length)] : 路参IP;
+    return;
+  }
+
+  // 处理SOCKS5/HTTP代理参数
+  let socksMatch;
+  if ((socksMatch = pathname.match(/\/(socks5?|http):\/?\/?(.+)/i))) {
+    // 格式: /socks5://... 或 /http://...
+    启用SOCKS5反代 = socksMatch[1].toLowerCase() === 'http' ? 'http' : 'socks5';
+    我的SOCKS5账号 = socksMatch[2].split('#')[0];
+    启用SOCKS5全局反代 = true;
+
+    // 处理Base64编码的用户名密码
+    if (我的SOCKS5账号.includes('@')) {
+      const atIndex = 我的SOCKS5账号.lastIndexOf('@');
+      let userPassword = 我的SOCKS5账号.substring(0, atIndex).replaceAll('%3D', '=');
+      if (/^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i.test(userPassword) && !userPassword.includes(':')) {
+        userPassword = atob(userPassword);
+      }
+      我的SOCKS5账号 = `${userPassword}@${我的SOCKS5账号.substring(atIndex + 1)}`;
+    }
+  } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?http)=(.+)/i))) {
+    // 格式: /socks5=... 或 /s5=... 或 /gs5=... 或 /http=... 或 /ghttp=...
+    const type = socksMatch[1].toLowerCase();
+    我的SOCKS5账号 = socksMatch[2];
+    启用SOCKS5反代 = type.includes('http') ? 'http' : 'socks5';
+    启用SOCKS5全局反代 = type.startsWith('g') || 启用SOCKS5全局反代; // gs5 或 ghttp 开头启用全局
+  }
+
+  // 解析SOCKS5地址
+  if (我的SOCKS5账号) {
+    try {
+      parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
+      启用SOCKS5反代 = searchParams.get('http') ? 'http' : 启用SOCKS5反代;
+    } catch (err) {
+      console.error('解析SOCKS5地址失败:', err.message);
+      启用SOCKS5反代 = null;
+    }
+  } else 启用SOCKS5反代 = null;
 }

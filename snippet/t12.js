@@ -2,15 +2,10 @@ const FIXED_UUID = '';// 天书12
 //1. 天书版12.0重构版队列传输模式改，本版再次改变传输逻辑，大幅度提升传输稳定性，建议pages部署，这版是全功能开发者研究版，不适合小白部署
 import { connect } from 'cloudflare:sockets';
 //////////////////////////////////////////////////////////////////////////配置区块////////////////////////////////////////////////////////////////////////
-let 反代IP = '' //反代IP或域名，反代IP端口一般情况下不用填写，如果你非要用非标反代的话，可以填'ts.hpc.tw:443'这样
-let 启用SOCKS5反代 = null //如果启用此功能，原始反代将失效，很多S5不一定支持ipv6，启用则需禁用doh查询ipv6功能
-let 启用SOCKS5全局反代 = false //选择是否启用SOCKS5全局反代，启用后所有访问都是S5的落地【无论你客户端选什么节点】，访问路径是客户端--CF--SOCKS5，当然启用此功能后延迟=CF+SOCKS5，带宽取决于SOCKS5的带宽，不再享受CF高速和随时满带宽的待遇
-let 我的SOCKS5账号 = ''; //格式'账号:密码@地址:端口'，示例admin:admin@127.0.0.1:443或admin:admin@[IPV6]:443，支持无账号密码示例@127.0.0.1:443
-
+let 反代IP = '', 启用SOCKS5反代 = null, 启用SOCKS5全局反代 = false, 我的SOCKS5账号 = '', parsedSocks5Address = {};
 //////////////////////////////////////////////////////////////////////////个性化配置///////////////////////////////////////////////////////////////////////
 //以下是适合开发者研究的个性化配置，如果你是小白保持默认别动就行
 let 启用新版传输模式 = false //开启则使用队列传输方式，关闭则是原始管道流传输方式
-
 let 启动控流机制 = false //仅新版传输方式有效，选择是否启动控流机制，true启动，false关闭，使用控流可降低CPU超时的概率，提升连接稳定性，适合轻度使用，日常使用应该绰绰有余
 let 传输控流延迟 = 200; //单位毫秒，每传输2m数据暂停多少毫秒
 //////////////////////////////////////////////////////////////////////////网页入口////////////////////////////////////////////////////////////////////////
@@ -18,57 +13,7 @@ export default {
     async fetch(访问请求) {
         反代IP = 反代IP ? 反代IP : 访问请求.cf.colo + '.PrOxYIp.CmLiUsSsS.nEt';
         if (访问请求.headers.get('Upgrade') === 'websocket') {
-            const url = new URL(访问请求.url);
-            我的SOCKS5账号 = url.searchParams.get('socks5') || url.searchParams.get('http');
-            启用SOCKS5全局反代 = url.searchParams.has('globalproxy');
-            if (url.pathname.toLowerCase().includes('/socks5=') || (url.pathname.includes('/s5=')) || (url.pathname.includes('/gs5='))) {
-                我的SOCKS5账号 = url.pathname.split('5=')[1];
-                启用SOCKS5反代 = 'socks5';
-                启用SOCKS5全局反代 = url.pathname.includes('/gs5=') ? true : 启用SOCKS5全局反代;
-            } else if (url.pathname.toLowerCase().includes('/http=')) {
-                我的SOCKS5账号 = url.pathname.split('/http=')[1];
-                启用SOCKS5反代 = 'http';
-            } else if (url.pathname.toLowerCase().includes('/socks://') || url.pathname.toLowerCase().includes('/socks5://') || url.pathname.toLowerCase().includes('/http://')) {
-                启用SOCKS5反代 = (url.pathname.includes('/http://')) ? 'http' : 'socks5';
-                我的SOCKS5账号 = url.pathname.split('://')[1].split('#')[0];
-                if (我的SOCKS5账号.includes('@')) {
-                    const lastAtIndex = 我的SOCKS5账号.lastIndexOf('@');
-                    let userPassword = 我的SOCKS5账号.substring(0, lastAtIndex).replaceAll('%3D', '=');
-                    const base64Regex = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
-                    if (base64Regex.test(userPassword) && !userPassword.includes(':')) userPassword = atob(userPassword);
-                    我的SOCKS5账号 = `${userPassword}@${我的SOCKS5账号.substring(lastAtIndex + 1)}`;
-                }
-                启用SOCKS5全局反代 = true;//开启全局SOCKS5
-            }
-
-            if (我的SOCKS5账号) {
-                try {
-                    获取SOCKS5账号(我的SOCKS5账号);
-                    启用SOCKS5反代 = url.searchParams.get('http') ? 'http' : 启用SOCKS5反代;
-                } catch (err) {
-                    启用SOCKS5反代 = null;
-                }
-            } else {
-                启用SOCKS5反代 = null;
-            }
-
-            if (url.searchParams.has('proxyip')) {
-                反代IP = url.searchParams.get('proxyip');
-                启用SOCKS5反代 = null;
-            } else if (url.pathname.toLowerCase().includes('/proxyip=')) {
-                反代IP = url.pathname.toLowerCase().split('/proxyip=')[1];
-                启用SOCKS5反代 = null;
-            } else if (url.pathname.toLowerCase().includes('/proxyip.')) {
-                反代IP = `proxyip.${url.pathname.toLowerCase().split("/proxyip.")[1]}`;
-                启用SOCKS5反代 = null;
-            } else if (url.pathname.toLowerCase().includes('/pyip=')) {
-                反代IP = url.pathname.toLowerCase().split('/pyip=')[1];
-                启用SOCKS5反代 = null;
-            } else if (url.pathname.toLowerCase().includes('/ip=')) {
-                反代IP = url.pathname.toLowerCase().split('/ip=')[1];
-                启用SOCKS5反代 = null;
-            }
-
+            await 反代参数获取(访问请求);
             return await 升级WS请求(访问请求);
         } else {
             return new Response('Hello World!', { status: 200 });
@@ -299,7 +244,7 @@ async function 队列传输管道(访问地址, 传输数据, 读取数据, WS�
 async function 创建SOCKS5接口(识别地址类型, 访问地址, 访问端口, 转换访问地址, 传输数据, 读取数据) {
     let SOCKS5接口, 账号, 密码, 地址, 端口;
     try {
-        ({ username: 账号, password: 密码, hostname: 地址, port: 端口 } = await 获取SOCKS5账号(我的SOCKS5账号));
+        ({ username: 账号, password: 密码, hostname: 地址, port: 端口 } = parsedSocks5Address);
         SOCKS5接口 = connect({ hostname: 地址, port: 端口 });
         await SOCKS5接口.opened;
         传输数据 = SOCKS5接口.writable.getWriter();
@@ -428,7 +373,6 @@ function 生成随机字符串(最小长度 = 8, 最大长度 = 24) {
 }
 
 async function httpConnect(addressRemote, portRemote) {
-    const parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
     const { username, password, hostname, port } = parsedSocks5Address;
     const sock = await connect({
         hostname: hostname,
@@ -532,4 +476,62 @@ async function httpConnect(addressRemote, portRemote) {
     }
 
     return sock;
+}
+
+async function 反代参数获取(request) {
+    const url = new URL(request.url);
+    const { pathname, searchParams } = url;
+    const pathLower = pathname.toLowerCase();
+
+    // 初始化
+    我的SOCKS5账号 = searchParams.get('socks5') || searchParams.get('http') || null;
+    启用SOCKS5全局反代 = searchParams.has('globalproxy') || false;
+
+    // 统一处理反代IP参数 (优先级最高,使用正则一次匹配)
+    const proxyMatch = pathLower.match(/\/(proxyip[.=]|pyip=|ip=)(.+)/);
+    if (searchParams.has('proxyip')) {
+        const 路参IP = searchParams.get('proxyip');
+        反代IP = 路参IP.includes(',') ? 路参IP.split(',')[Math.floor(Math.random() * 路参IP.split(',').length)] : 路参IP;
+        return;
+    } else if (proxyMatch) {
+        const 路参IP = proxyMatch[1] === 'proxyip.' ? `proxyip.${proxyMatch[2]}` : proxyMatch[2];
+        反代IP = 路参IP.includes(',') ? 路参IP.split(',')[Math.floor(Math.random() * 路参IP.split(',').length)] : 路参IP;
+        return;
+    }
+
+    // 处理SOCKS5/HTTP代理参数
+    let socksMatch;
+    if ((socksMatch = pathname.match(/\/(socks5?|http):\/?\/?(.+)/i))) {
+        // 格式: /socks5://... 或 /http://...
+        启用SOCKS5反代 = socksMatch[1].toLowerCase() === 'http' ? 'http' : 'socks5';
+        我的SOCKS5账号 = socksMatch[2].split('#')[0];
+        启用SOCKS5全局反代 = true;
+
+        // 处理Base64编码的用户名密码
+        if (我的SOCKS5账号.includes('@')) {
+            const atIndex = 我的SOCKS5账号.lastIndexOf('@');
+            let userPassword = 我的SOCKS5账号.substring(0, atIndex).replaceAll('%3D', '=');
+            if (/^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i.test(userPassword) && !userPassword.includes(':')) {
+                userPassword = atob(userPassword);
+            }
+            我的SOCKS5账号 = `${userPassword}@${我的SOCKS5账号.substring(atIndex + 1)}`;
+        }
+    } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?http)=(.+)/i))) {
+        // 格式: /socks5=... 或 /s5=... 或 /gs5=... 或 /http=... 或 /ghttp=...
+        const type = socksMatch[1].toLowerCase();
+        我的SOCKS5账号 = socksMatch[2];
+        启用SOCKS5反代 = type.includes('http') ? 'http' : 'socks5';
+        启用SOCKS5全局反代 = type.startsWith('g') || 启用SOCKS5全局反代; // gs5 或 ghttp 开头启用全局
+    }
+
+    // 解析SOCKS5地址
+    if (我的SOCKS5账号) {
+        try {
+            parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号);
+            启用SOCKS5反代 = searchParams.get('http') ? 'http' : 启用SOCKS5反代;
+        } catch (err) {
+            console.error('解析SOCKS5地址失败:', err.message);
+            启用SOCKS5反代 = null;
+        }
+    } else 启用SOCKS5反代 = null;
 }
